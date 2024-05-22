@@ -6,7 +6,7 @@ edition = "2021"
 repository = "https://github.com/tayden/ix-match"
 description = "A tool for matching and moving IIQ files so they can be easily imported into IX Capture."
 license = "MIT"
-
+readme = "README.md"
 
 [dependencies]
 anyhow = "1.0.86"
