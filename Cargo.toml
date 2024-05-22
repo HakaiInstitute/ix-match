@@ -1,0 +1,15 @@
+[package]
+name = "ix-match"
+authors = ["Taylor Denouden <taylor.denouden@hakai.org>"]
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/tayden/ix-match"
+description = "A tool for matching and moving IIQ files so they can be easily imported into IX Capture."
+license = "MIT"
+
+
+[dependencies]
+anyhow = "1.0.86"
+clap = { version = "4.5.4", features = ["derive"] }
+glob = "0.3.1"
+polars = "0.40.0"
