@@ -40,26 +40,25 @@ fn main() -> Result<()> {
 
     // Find subdirectories beginning with "YC"
     let yc_dir = find_dir_by_pattern(&iiq_dir, args.rgb_pattern.as_str());
-    let yc_iiq_files = find_files(&yc_dir, ".IIQ");
+    let yc_iiq_files = find_files(&yc_dir, ".IIQ")?;
 
     // Find subdirectories beginning with "YD"
     let yd_dir = find_dir_by_pattern(&iiq_dir, args.nir_pattern.as_str());
-    let yd_iiq_files = find_files(&yd_dir, ".IIQ");
+    let yd_iiq_files = find_files(&yd_dir, ".IIQ")?;
 
     // Create dataframes
-    let rgb_df = make_iiq_df(&yc_iiq_files).unwrap();
-    let nir_df = make_iiq_df(&yd_iiq_files).unwrap();
+    let rgb_df = make_iiq_df(&yc_iiq_files)?;
+    let nir_df = make_iiq_df(&yd_iiq_files)?;
 
-    let matched_df = rgb_df.inner_join(&nir_df, &["Event"], &["Event"]).unwrap();
+    let matched_df = rgb_df.inner_join(&nir_df, &["Event"], &["Event"])?;
     println!("Found IIQs!");
     println!("RGB: {}, NIR: {} ({} match)", yc_iiq_files.len(), yd_iiq_files.len(), matched_df.height());
 
-    let joined_df = rgb_df.outer_join(&nir_df, &["Event"], &["Event"]).unwrap();
+    let joined_df = rgb_df.outer_join(&nir_df, &["Event"], &["Event"])?;
 
     if matched_df.height() < joined_df.height() {
         println!("Moving unmatched files to '{}/' sub-directories", args.output_dir);
-    }
-    else {
+    } else {
         println!("All files matched!");
     }
 

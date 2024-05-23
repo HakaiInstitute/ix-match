@@ -24,7 +24,6 @@ pub fn find_dir_by_pattern(base_dir: &PathBuf, dir_pattern: &str) -> PathBuf {
 
 pub fn make_iiq_df(iiq_files: &[PathBuf]) -> PolarsResult<DataFrame> {
     // Filenames match pattern yyyy-mm-ddnnn_RGB_id.IIQ
-
     df!(
         "Path" => &iiq_files.iter().map(|p| p.to_string_lossy().into_owned()).collect::<Vec<String>>(),
         "Filename" => &iiq_files.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<String>>(),
@@ -38,17 +37,18 @@ pub fn make_iiq_df(iiq_files: &[PathBuf]) -> PolarsResult<DataFrame> {
     )
 }
 
-pub fn find_files(dir: &Path, extension: &str) -> Vec<PathBuf> {
-    dir.read_dir().unwrap()
+pub fn find_files(dir: &Path, extension: &str) -> Result<Vec<PathBuf>> {
+    let files = dir.read_dir()?
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.file_type().unwrap().is_file())
         .filter(|entry| entry.file_name().to_string_lossy().ends_with(extension))
         .map(|entry| entry.path())
-        .collect()
+        .collect();
+    Ok(files)
 }
 
 pub fn move_unmatched_files(df: &DataFrame, dir: &Path, column_name: &str, subdir_name: &str, dry_run: bool) -> Result<()> {
-    let path_series = df.column(column_name).unwrap().str().unwrap();
+    let path_series = df.column(column_name)?.str().unwrap();
     let paths: Vec<PathBuf> = path_series.into_iter().filter_map(|s| s.map(PathBuf::from)).collect();
 
     // Create 'unmatched' directory
