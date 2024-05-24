@@ -37,12 +37,16 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let iiq_dir = args.iiq_dir;
 
-    // Find subdirectories beginning with "YC"
     let yc_dir = find_dir_by_pattern(&iiq_dir, args.rgb_pattern.as_str());
-    let yc_iiq_files = find_files(&yc_dir, ".IIQ")?;
-
-    // Find subdirectories beginning with "YD"
     let yd_dir = find_dir_by_pattern(&iiq_dir, args.nir_pattern.as_str());
+
+    if yc_dir.is_none() || yd_dir.is_none() {
+        return Ok(());
+    }
+    let yc_dir = yc_dir.expect("RGB directory doesn't exist");
+    let yd_dir = yd_dir.expect("NIR directory doesn't exist");
+
+    let yc_iiq_files = find_files(&yc_dir, ".IIQ")?;
     let yd_iiq_files = find_files(&yd_dir, ".IIQ")?;
 
     // Create dataframes

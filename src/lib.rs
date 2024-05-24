@@ -1,11 +1,10 @@
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
-use std::process::exit;
 
 use anyhow::Result;
 use glob::glob;
 use polars::prelude::*;
 
-pub fn find_dir_by_pattern(base_dir: &PathBuf, dir_pattern: &str) -> PathBuf {
+pub fn find_dir_by_pattern(base_dir: &PathBuf, dir_pattern: &str) -> Option<PathBuf> {
     let pattern = format!(
         "{}{}{}",
         base_dir.to_string_lossy(),
@@ -19,18 +18,21 @@ pub fn find_dir_by_pattern(base_dir: &PathBuf, dir_pattern: &str) -> PathBuf {
         .collect();
 
     match dirs.len() {
-        1 => dirs[0].clone(),
+        1 => Some(dirs[0].clone()),
         0 => {
             println!(
                 "No directory matching '{}' found in {:?}",
                 dir_pattern, base_dir
             );
-            exit(1);
+            None
         }
-        _ => panic!(
-            "Multiple directories matching '{}' found in {:?}",
-            dir_pattern, base_dir
-        ),
+        _ => {
+            println!(
+                "Multiple directories matching '{}' found in {:?}",
+                dir_pattern, base_dir
+            );
+            None
+        }
     }
 }
 
