@@ -7,8 +7,8 @@ use polars::prelude::*;
 use ix_match::{find_dir_by_pattern, find_files, make_iiq_df, move_unmatched_files};
 
 /// Match RGB and NIR IIQ files and move unmatched images to a new subdirectory.
-/// Helps to sort images from an aerial survey using PhaseOne cameras as a preprocessing step for 
-/// converting the files with IX-Capture. 
+/// Helps to sort images from an aerial survey using PhaseOne cameras as a preprocessing step for
+/// converting the files with IX-Capture.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -33,7 +33,6 @@ struct Args {
     nir_pattern: String,
 }
 
-
 fn main() -> Result<()> {
     let args = Args::parse();
     let iiq_dir = args.iiq_dir;
@@ -52,12 +51,20 @@ fn main() -> Result<()> {
 
     let matched_df = rgb_df.inner_join(&nir_df, &["Event"], &["Event"])?;
     println!("Found IIQs!");
-    println!("RGB: {}, NIR: {} ({} match)", yc_iiq_files.len(), yd_iiq_files.len(), matched_df.height());
+    println!(
+        "RGB: {}, NIR: {} ({} match)",
+        yc_iiq_files.len(),
+        yd_iiq_files.len(),
+        matched_df.height()
+    );
 
     let joined_df = rgb_df.outer_join(&nir_df, &["Event"], &["Event"])?;
 
     if matched_df.height() < joined_df.height() {
-        println!("Moving unmatched files to '{}/' sub-directories", args.output_dir);
+        println!(
+            "Moving unmatched files to '{}/' sub-directories",
+            args.output_dir
+        );
     } else {
         println!("All files matched!");
     }
@@ -65,13 +72,25 @@ fn main() -> Result<()> {
     let mask = joined_df.column("Type")?.is_null();
     let unmatched_nir_df = joined_df.filter(&mask)?;
     if unmatched_nir_df.height() > 0 {
-        move_unmatched_files(&unmatched_nir_df, &yd_dir, "Path_right", &args.output_dir, args.dry_run)?;
+        move_unmatched_files(
+            &unmatched_nir_df,
+            &yd_dir,
+            "Path_right",
+            &args.output_dir,
+            args.dry_run,
+        )?;
     }
 
     let mask = joined_df.column("Type_right")?.is_null();
     let unmatched_rgb_df = joined_df.filter(&mask)?;
     if unmatched_rgb_df.height() > 0 {
-        move_unmatched_files(&unmatched_rgb_df, &yc_dir, "Path", &args.output_dir, args.dry_run)?;
+        move_unmatched_files(
+            &unmatched_rgb_df,
+            &yc_dir,
+            "Path",
+            &args.output_dir,
+            args.dry_run,
+        )?;
     }
 
     Ok(())
