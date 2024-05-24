@@ -3,6 +3,7 @@ use std::path::{
     Path,
     PathBuf,
 };
+use std::process::exit;
 
 use anyhow::Result;
 use glob::glob;
@@ -17,7 +18,10 @@ pub fn find_dir_by_pattern(base_dir: &PathBuf, dir_pattern: &str) -> PathBuf {
 
     match dirs.len() {
         1 => dirs[0].clone(),
-        0 => panic!("No directory matching '{}' found in {:?}", dir_pattern, base_dir),
+        0 => {
+            println!("No directory matching '{}' found in {:?}", dir_pattern, base_dir);
+            exit(1);
+        }
         _ => panic!("Multiple directories matching '{}' found in {:?}", dir_pattern, base_dir),
     }
 }
