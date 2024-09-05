@@ -1,10 +1,11 @@
-use std::path::PathBuf;
-
 use anyhow::Result;
 use clap::Parser;
 use polars::prelude::*;
 
-use ix_match::{find_dir_by_pattern, find_files, make_iiq_df, move_unmatched_files};
+use std::path::PathBuf;
+use std::time::Duration;
+
+use ix_match::{find_dir_by_pattern, find_files, make_iiq_df, move_files};
 
 /// Match RGB and NIR IIQ files and move unmatched images to a new subdirectory.
 /// Helps to sort images from an aerial survey using PhaseOne cameras as a preprocessing step for
@@ -20,82 +21,86 @@ struct Args {
     #[arg(short, long, action = clap::ArgAction::SetTrue, default_value = "false")]
     dry_run: bool,
 
-    /// The new subdirectory name where unmatched files will be moved
-    #[arg(short, default_value = "Unmatched")]
-    output_dir: String,
-
     /// Pattern for finding directory containing RGB files
-    #[arg(short, long, default_value = "YC*")]
+    #[arg(short, long, default_value = "CAMERA_RGB")]
     rgb_pattern: String,
 
     /// Pattern for finding directory containing NIR files
-    #[arg(short, long, default_value = "YD*")]
+    #[arg(short, long, default_value = "CAMERA_NIR")]
     nir_pattern: String,
+
+    /// Threshold for matching images in milliseconds
+    #[arg(short, long, default_value = "500")]
+    thresh: u64,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
     let iiq_dir = args.iiq_dir;
 
-    let yc_dir = find_dir_by_pattern(&iiq_dir, args.rgb_pattern.as_str());
-    let yd_dir = find_dir_by_pattern(&iiq_dir, args.nir_pattern.as_str());
+    let rgb_dir = find_dir_by_pattern(&iiq_dir, &args.rgb_pattern)
+        .ok_or_else(|| anyhow::anyhow!("RGB directory not found"))?;
 
-    if yc_dir.is_none() || yd_dir.is_none() {
-        return Ok(());
-    }
-    let yc_dir = yc_dir.expect("RGB directory doesn't exist");
-    let yd_dir = yd_dir.expect("NIR directory doesn't exist");
+    let nir_dir = find_dir_by_pattern(&iiq_dir, &args.nir_pattern)
+        .ok_or_else(|| anyhow::anyhow!("NIR directory not found"))?;
 
-    let yc_iiq_files = find_files(&yc_dir, ".IIQ")?;
-    let yd_iiq_files = find_files(&yd_dir, ".IIQ")?;
+    // Find IIQ files
+    let rgb_iiq_files = find_files(&rgb_dir, ".iiq")?;
+    let nir_iiq_files = find_files(&nir_dir, ".iiq")?;
 
     // Create dataframes
-    let rgb_df = make_iiq_df(&yc_iiq_files)?;
-    let nir_df = make_iiq_df(&yd_iiq_files)?;
+    let rgb_df = make_iiq_df(&rgb_iiq_files)?;
+    let nir_df = make_iiq_df(&nir_iiq_files)?;
 
-    let matched_df = rgb_df.inner_join(&nir_df, &["Event"], &["Event"])?;
-    println!("Found IIQs!");
+    // Do the join
+    let joint_df = ix_match::join_dataframes(&rgb_df, &nir_df)?;
+
+    // Split df into matched and unmatched based on threshold
+    let thresh = Duration::from_millis(args.thresh).as_nanos() as i64;
+    let thresh_exp = lit(thresh).cast(DataType::Duration(TimeUnit::Nanoseconds));
+
+    let matched_df = joint_df
+        .clone()
+        .lazy()
+        .filter(col("dt").lt_eq(thresh_exp.clone()))
+        .collect()?;
+
+    let unmatched_df = joint_df
+        .clone()
+        .lazy()
+        .filter(col("dt").gt(thresh_exp))
+        .collect()?;
+
     println!(
         "RGB: {}, NIR: {} ({} match)",
-        yc_iiq_files.len(),
-        yd_iiq_files.len(),
+        rgb_df.height(),
+        nir_df.height(),
         matched_df.height()
     );
 
-    let joined_df = rgb_df.outer_join(&nir_df, &["Event"], &["Event"])?;
+    if !args.dry_run {
+        // Create the unmatched directories
+        let unmatched_rgb_dir = rgb_dir.join("unmatched");
+        std::fs::create_dir_all(&unmatched_rgb_dir)?;
 
-    if matched_df.height() < joined_df.height() {
-        println!(
-            "Moving unmatched files to '{}/' sub-directories",
-            args.output_dir
-        );
-    } else {
-        println!("All files matched!");
+        let unmatched_nir_dir = nir_dir.join("unmatched");
+        std::fs::create_dir_all(&unmatched_nir_dir)?;
+
+        // Move all matched iiq files to camera dirs root
+        move_files(&matched_df, &rgb_dir, "Path_rgb")?;
+        move_files(&matched_df, &nir_dir, "Path_nir")?;
+
+        // Move unmatched files
+        if unmatched_df.height() > 0 {
+            std::fs::create_dir_all(&unmatched_rgb_dir)?;
+            move_files(&unmatched_df, &unmatched_rgb_dir, "Path_rgb")?;
+
+            std::fs::create_dir_all(&unmatched_nir_dir)?;
+            move_files(&unmatched_df, &unmatched_nir_dir, "Path_nir")?;
+        }
     }
 
-    let mask = joined_df.column("Type")?.is_null();
-    let unmatched_nir_df = joined_df.filter(&mask)?;
-    if unmatched_nir_df.height() > 0 {
-        move_unmatched_files(
-            &unmatched_nir_df,
-            &yd_dir,
-            "Path_right",
-            &args.output_dir,
-            args.dry_run,
-        )?;
-    }
-
-    let mask = joined_df.column("Type_right")?.is_null();
-    let unmatched_rgb_df = joined_df.filter(&mask)?;
-    if unmatched_rgb_df.height() > 0 {
-        move_unmatched_files(
-            &unmatched_rgb_df,
-            &yc_dir,
-            "Path",
-            &args.output_dir,
-            args.dry_run,
-        )?;
-    }
+    println!("Done!");
 
     Ok(())
 }
