@@ -32,6 +32,10 @@ struct Args {
     /// Threshold for matching images in milliseconds
     #[arg(short, long, default_value = "500")]
     thresh: u64,
+
+    /// Verbose output
+    #[arg(short, long)]
+    verbose: bool,
 }
 
 fn main() -> Result<()> {
@@ -71,13 +75,6 @@ fn main() -> Result<()> {
         .filter(col("dt").gt(thresh_exp))
         .collect()?;
 
-    println!(
-        "RGB: {}, NIR: {} ({} match)",
-        rgb_df.height(),
-        nir_df.height(),
-        matched_df.height()
-    );
-
     if !args.dry_run {
         // Create the unmatched directories
         let unmatched_rgb_dir = rgb_dir.join("unmatched");
@@ -87,20 +84,25 @@ fn main() -> Result<()> {
         std::fs::create_dir_all(&unmatched_nir_dir)?;
 
         // Move all matched iiq files to camera dirs root
-        move_files(&matched_df, &rgb_dir, "Path_rgb")?;
-        move_files(&matched_df, &nir_dir, "Path_nir")?;
+        move_files(&matched_df, &rgb_dir, "Path_rgb", args.verbose)?;
+        move_files(&matched_df, &nir_dir, "Path_nir", args.verbose)?;
 
         // Move unmatched files
         if unmatched_df.height() > 0 {
             std::fs::create_dir_all(&unmatched_rgb_dir)?;
-            move_files(&unmatched_df, &unmatched_rgb_dir, "Path_rgb")?;
+            move_files(&unmatched_df, &unmatched_rgb_dir, "Path_rgb", args.verbose)?;
 
             std::fs::create_dir_all(&unmatched_nir_dir)?;
-            move_files(&unmatched_df, &unmatched_nir_dir, "Path_nir")?;
+            move_files(&unmatched_df, &unmatched_nir_dir, "Path_nir", args.verbose)?;
         }
     }
 
-    println!("Done!");
+    println!(
+        "RGB: {}, NIR: {} ({} match)",
+        rgb_df.height(),
+        nir_df.height(),
+        matched_df.height()
+    );
 
     Ok(())
 }

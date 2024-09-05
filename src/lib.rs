@@ -87,7 +87,7 @@ fn find_files_recursive(dir: &Path, extension: &str, files: &mut Vec<PathBuf>) -
     Ok(())
 }
 
-pub fn move_files(df: &DataFrame, dir: &Path, column_name: &str) -> Result<()> {
+pub fn move_files(df: &DataFrame, dir: &Path, column_name: &str, verbose: bool) -> Result<()> {
     let path_series = df.column(column_name)?.str().unwrap();
     let paths: Vec<PathBuf> = path_series
         .into_iter()
@@ -97,7 +97,9 @@ pub fn move_files(df: &DataFrame, dir: &Path, column_name: &str) -> Result<()> {
     // Move files to 'unmatched' directory
     for path in paths {
         let dest = dir.join(path.file_name().unwrap());
-        println!("{} -> {}", path.display(), dest.display());
+        if verbose {
+            println!("{} -> {}", path.display(), dest.display());
+        }
         std::fs::rename(&path, &dest)?;
     }
 
