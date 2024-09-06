@@ -41,7 +41,7 @@ pub fn find_dir_by_pattern(base_dir: &PathBuf, dir_pattern: &str) -> Option<Path
     }
 }
 
-pub fn make_iiq_df(iiq_files: &[PathBuf]) -> PolarsResult<DataFrame> {
+fn make_iiq_df(iiq_files: &[PathBuf]) -> PolarsResult<DataFrame> {
     let paths: Vec<String> = iiq_files
         .iter()
         .map(|p| p.to_string_lossy().into_owned())
@@ -64,7 +64,7 @@ pub fn make_iiq_df(iiq_files: &[PathBuf]) -> PolarsResult<DataFrame> {
     )
 }
 
-pub fn find_files(dir: &Path, extension: &str) -> Result<Vec<PathBuf>> {
+fn find_files(dir: &Path, extension: &str) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     find_files_recursive(dir, extension, &mut files)?;
     Ok(files)
@@ -88,7 +88,7 @@ fn find_files_recursive(dir: &Path, extension: &str, files: &mut Vec<PathBuf>) -
     Ok(())
 }
 
-pub fn move_files(df: &DataFrame, dir: &Path, column_name: &str, verbose: bool) -> Result<()> {
+fn move_files(df: &DataFrame, dir: &Path, column_name: &str, verbose: bool) -> Result<()> {
     let path_series = df.column(column_name)?.str().unwrap();
     let paths: Vec<PathBuf> = path_series
         .into_iter()
@@ -107,7 +107,7 @@ pub fn move_files(df: &DataFrame, dir: &Path, column_name: &str, verbose: bool) 
     Ok(())
 }
 
-pub fn join_dataframes(rgb_df: &DataFrame, nir_df: &DataFrame) -> Result<DataFrame> {
+fn join_dataframes(rgb_df: &DataFrame, nir_df: &DataFrame) -> Result<DataFrame> {
     // Sort by datetime
     let mut rgb_df = rgb_df.sort(["Datetime"], SortMultipleOptions::default())?;
     let mut nir_df = nir_df.sort(["Datetime"], SortMultipleOptions::default())?;
