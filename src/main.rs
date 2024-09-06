@@ -22,11 +22,11 @@ struct Args {
     dry_run: bool,
 
     /// Pattern for finding directory containing RGB files
-    #[arg(short, long, default_value = "CAMERA_RGB")]
+    #[arg(short, long, default_value = "C*_RGB")]
     rgb_pattern: String,
 
     /// Pattern for finding directory containing NIR files
-    #[arg(short, long, default_value = "CAMERA_NIR")]
+    #[arg(short, long, default_value = "C*_NIR")]
     nir_pattern: String,
 
     /// Threshold for matching images in milliseconds
@@ -69,10 +69,20 @@ fn main() -> Result<()> {
         .filter(col("dt").lt_eq(thresh_exp.clone()))
         .collect()?;
 
-    let unmatched_df = joint_df
+    let unmatched_rgb_df = joint_df
         .clone()
         .lazy()
-        .filter(col("dt").gt(thresh_exp))
+        .filter(col("dt").gt(thresh_exp.clone()))
+        .select(&[col("Path_rgb")])
+        .drop_nulls(None)
+        .collect()?;
+
+    let unmatched_nir_df = joint_df
+        .clone()
+        .lazy()
+        .filter(col("dt").gt(thresh_exp.clone()))
+        .select(&[col("Path_nir")])
+        .drop_nulls(None)
         .collect()?;
 
     if !args.dry_run {
@@ -88,12 +98,23 @@ fn main() -> Result<()> {
         move_files(&matched_df, &nir_dir, "Path_nir", args.verbose)?;
 
         // Move unmatched files
-        if unmatched_df.height() > 0 {
+        if unmatched_rgb_df.height() > 0 {
             std::fs::create_dir_all(&unmatched_rgb_dir)?;
-            move_files(&unmatched_df, &unmatched_rgb_dir, "Path_rgb", args.verbose)?;
-
+            move_files(
+                &unmatched_rgb_df,
+                &unmatched_rgb_dir,
+                "Path_rgb",
+                args.verbose,
+            )?;
+        }
+        if unmatched_nir_df.height() > 0 {
             std::fs::create_dir_all(&unmatched_nir_dir)?;
-            move_files(&unmatched_df, &unmatched_nir_dir, "Path_nir", args.verbose)?;
+            move_files(
+                &unmatched_nir_df,
+                &unmatched_nir_dir,
+                "Path_nir",
+                args.verbose,
+            )?;
         }
     }
 
@@ -106,3 +127,6 @@ fn main() -> Result<()> {
 
     Ok(())
 }
+
+// TODO
+// - [ ] Add a GUI or TUI
