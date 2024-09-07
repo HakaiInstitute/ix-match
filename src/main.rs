@@ -4,7 +4,7 @@ use clap::Parser;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use ix_match::{find_dir_by_pattern, find_files, make_iiq_df, move_files, process_images};
+use ix_match::{find_dir_by_pattern, process_images};
 
 /// Match RGB and NIR IIQ files and move unmatched images to a new subdirectory.
 /// Helps to sort images from an aerial survey using PhaseOne cameras as a preprocessing step for
@@ -60,6 +60,3 @@ fn main() -> Result<()> {
 
     Ok(())
 }
-
-// TODO
-// - [ ] Add a GUI or TUI

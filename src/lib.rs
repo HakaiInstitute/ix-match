@@ -206,6 +206,17 @@ pub fn process_images(
     dry_run: bool,
     verbose: bool,
 ) -> Result<(usize, usize, usize)> {
+    // Check that the directories exist
+    let rgb_exists = rgb_dir.exists();
+    let nir_exists = nir_dir.exists();
+    if !rgb_exists || !nir_exists {
+        return Err(anyhow::anyhow!("RGB or NIR directories do not exist"));
+    } else if !rgb_exists {
+        return Err(anyhow::anyhow!("RGB directory does not exist"));
+    } else if !nir_exists {
+        return Err(anyhow::anyhow!("NIR directory does not exist"));
+    }
+
     // Find IIQ files
     let rgb_iiq_files = find_files(rgb_dir, ".iiq")?;
     let nir_iiq_files = find_files(nir_dir, ".iiq")?;
@@ -578,5 +589,16 @@ mod tests {
             .join("210101_120005000.iiq")
             .exists());
         assert!(!nir_dir.join("210101_120005000.iiq").exists());
+    }
+
+    #[test]
+    fn test_process_images_with_no_dirs() {
+        let temp_dir = TempDir::new().unwrap();
+        let rgb_dir = temp_dir.path().join("rgb");
+        let nir_dir = temp_dir.path().join("nir");
+
+        let threshold = Duration::from_millis(200);
+        let result = process_images(&rgb_dir, &nir_dir, threshold, false, false);
+        assert!(result.is_err());
     }
 }
