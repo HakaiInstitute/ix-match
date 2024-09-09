@@ -210,7 +210,7 @@ pub fn process_images(
     let rgb_exists = rgb_dir.exists();
     let nir_exists = nir_dir.exists();
     if !rgb_exists || !nir_exists {
-        return Err(anyhow::anyhow!("RGB or NIR directories do not exist"));
+        return Err(anyhow::anyhow!("RGB and NIR directories do not exist"));
     } else if !rgb_exists {
         return Err(anyhow::anyhow!("RGB directory does not exist"));
     } else if !nir_exists {
