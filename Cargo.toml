@@ -11,9 +11,21 @@ readme = "README.md"
 [dependencies]
 polars = { version = "0.42.0", features = ["lazy", "asof_join", "is_in", "semi_anti_join", "dynamic_group_by", "abs"] }
 chrono = "0.4.38"
-clap = { version = "4.5.17", features = ["derive"] }
+clap = { version = "4.5.17", features = ["derive"], optional = true }
 glob = "0.3.1"
 anyhow = "1.0.86"
 
 [dev-dependencies]
 tempfile = "3.12.0"
+
+[features]
+cli = ["dep:clap"]
+
+[[bin]]
+name = "ix-match"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[lib]
+name = "ix_match"
+path = "src/lib.rs"

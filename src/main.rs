@@ -1,3 +1,5 @@
+#![cfg(feature = "cli")]
+
 use anyhow::Result;
 use clap::Parser;
 

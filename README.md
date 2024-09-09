@@ -10,19 +10,33 @@ It helps preprocess images for conversion with IX-Capture by moving unmatched im
 - Configurable matching threshold
 - Dry-run option for testing without moving files
 - Verbose output for detailed information
+- Can be used as a library or a CLI tool
 
 ## Installation
 
 To install IX-Match, you need to have Rust and Cargo installed on your system. If you don't have them installed, you can
 get them from [https://www.rust-lang.org/tools/install](https://www.rust-lang.org/tools/install).
 
-Once you have Rust and Cargo installed, you can install IX-Match using:
+### As a CLI tool
+
+To install IX-Match as a CLI tool, use:
 
 ```
-cargo install ix-match
+cargo install ix-match --features cli
+```
+
+### As a library
+
+To use IX-Match as a library in your Rust project, add the following to your `Cargo.toml`:
+
+```toml
+[dependencies]
+ix-match = "0.2.4"
 ```
 
 ## Usage
+
+### CLI Usage
 
 ```
 ix-match [OPTIONS] [IIQ_DIR]
@@ -42,6 +56,31 @@ Options:
 - `-h, --help`: Print help
 - `-V, --version`: Print version
 
+### Library Usage
+
+To use IX-Match as a library, you can import and use its functions in your Rust code:
+
+```rust
+use ix_match::{find_dir_by_pattern, process_images};
+use std::path::Path;
+use std::time::Duration;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let iiq_dir = Path::new("path/to/iiq/directory");
+    let rgb_dir = find_dir_by_pattern(iiq_dir, "C*_RGB").expect("RGB directory not found");
+    let nir_dir = find_dir_by_pattern(iiq_dir, "C*_NIR").expect("NIR directory not found");
+    
+    let thresh = Duration::from_millis(500);
+    let dry_run = false;
+    let verbose = false;
+    
+    let (rgb_count, nir_count, matched_count) = process_images(&rgb_dir, &nir_dir, thresh, dry_run, verbose)?;
+    println!("RGB: {}, NIR: {} ({} match)", rgb_count, nir_count, matched_count);
+    
+    Ok(())
+}
+```
+
 ## Development
 
 To make changes to IX-Match, follow these steps:
@@ -53,9 +92,9 @@ To make changes to IX-Match, follow these steps:
    ```
 
 2. Make your changes to the source code. The main files to edit are:
-    - `src/main.rs`: Contains the CLI interface and main program logic
-    - `src/lib.rs`: Contains the core functionality of the library
-    - `Cargo.toml`: Manage dependencies and project metadata
+   - `src/main.rs`: Contains the CLI interface and main program logic
+   - `src/lib.rs`: Contains the core functionality of the library
+   - `Cargo.toml`: Manage dependencies and project metadata
 
 3. Build the project:
    ```
@@ -69,13 +108,15 @@ To make changes to IX-Match, follow these steps:
 
 5. Run the program locally:
    ```
-   cargo run -- [OPTIONS] [IIQ_DIR]
+   cargo run --features cli -- [OPTIONS] [IIQ_DIR]
    ```
 
 6. To create a release build:
    ```
-   cargo build --release
+   cargo build --release --features cli
    ```
+
+Note: The `cli` feature flag is required to build and run the CLI version of IX-Match.
 
 ## Contributing
 
