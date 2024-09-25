@@ -387,10 +387,17 @@ mod tests {
 
     #[test]
     fn test_make_iiq_df() {
+        let temp_dir = TempDir::new().unwrap();
+        let base_path = temp_dir.path();
+
         let files = vec![
-            PathBuf::from("/path/to/210101_120000000.iiq"),
-            PathBuf::from("/path/to/210101_120001000.iiq"),
+            base_path.join("210101_120000000.iiq"),
+            base_path.join("210101_120001000.iiq"),
         ];
+
+        files.iter().for_each(|file| {
+            fs::write(file, "content").unwrap();
+        });
 
         let df = make_iiq_df(&files).unwrap();
 

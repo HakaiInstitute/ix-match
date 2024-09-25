@@ -11,6 +11,8 @@
             "cargo": {
                 "args": [
                     "run",
+                    "--features",
+                    "cli"
                 ],
             },
             "args": [],
@@ -27,7 +29,7 @@
             },
             "args": [],
             "cwd": "${workspaceFolder}"
-        }
+        },
         {
             "type": "lldb",
             "request": "launch",
@@ -36,6 +38,20 @@
                 "args": [
                     "build",
                     "--release",
+                ],
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Clippy",
+            "cargo": {
+                "args": [
+                    "clippy",
+                    "--fix",
+                    "--allow-dirty"
                 ],
             },
             "args": [],
