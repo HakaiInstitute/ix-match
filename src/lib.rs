@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::prelude::*;
 use glob::glob;
 use polars::df;
@@ -41,7 +41,8 @@ pub fn find_dir_by_pattern(base_dir: &PathBuf, dir_pattern: &str) -> Option<Path
     }
 }
 
-fn make_iiq_df(iiq_files: &[PathBuf]) -> PolarsResult<DataFrame> {
+
+fn make_iiq_df(iiq_files: &[PathBuf]) -> Result<DataFrame> {
     let paths: Vec<String> = iiq_files
         .iter()
         .map(|p| p.to_string_lossy().into_owned())
@@ -49,25 +50,33 @@ fn make_iiq_df(iiq_files: &[PathBuf]) -> PolarsResult<DataFrame> {
 
     let stems: Vec<String> = iiq_files
         .iter()
-        .map(|p| p.file_stem().unwrap().to_string_lossy().into_owned())
-        .collect();
+        .map(|p| {
+            p.file_stem()
+                .context("Failed to get file stem")
+                .and_then(|stem| stem.to_str().context("Failed to convert file stem to string"))
+                .map(|s| s.to_owned())
+        })
+        .collect::<Result<Vec<String>>>()?;
 
     let datetimes: Vec<NaiveDateTime> = stems
         .iter()
-        .map(|stem| NaiveDateTime::parse_from_str(&stem[..16], "%y%m%d_%H%M%S%3f").unwrap())
-        .collect();
+        .map(|stem| NaiveDateTime::parse_from_str(&stem[..16], "%y%m%d_%H%M%S%3f")
+            .with_context(|| format!("Failed to parse datetime from stem: {}", stem)))
+        .collect::<Result<Vec<NaiveDateTime>>>()?;
 
     let sizes: Vec<u64> = iiq_files
         .iter()
-        .map(|p| fs::metadata(p).map_or(0, |meta| meta.len()))
-        .collect();
+        .map(|p| fs::metadata(p)
+            .with_context(|| format!("Failed to get metadata for file: {:?}", p))
+            .map(|meta| meta.len()))
+        .collect::<Result<Vec<u64>>>()?;
 
     df!(
         "Path" => paths,
         "Stem" => stems,
         "Datetime" => datetimes,
         "Bytes" => sizes
-    )
+    ).context("Failed to create DataFrame")
 }
 
 fn find_files(dir: &Path, extension: &str) -> Result<Vec<PathBuf>> {
@@ -104,7 +113,7 @@ fn move_files(df: &DataFrame, dir: &Path, column_name: &str, verbose: bool) -> R
 
     // Move files to 'unmatched' directory
     for path in paths {
-        let dest = dir.join(path.file_name().unwrap());
+        let dest = dir.join(path.file_name().context("Failed to get file destination name")?);
         if verbose {
             println!("{} -> {}", path.display(), dest.display());
         }
