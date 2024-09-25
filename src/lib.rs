@@ -18,7 +18,7 @@ pub fn find_dir_by_pattern(base_dir: &PathBuf, dir_pattern: &str) -> Option<Path
     );
     let dirs: Vec<_> = glob(&pattern)
         .expect("Failed to read glob pattern")
-        .filter_map(std::result::Result::ok)
+        .filter_map(Result::ok)
         .filter(|path| path.is_dir())
         .collect();
 
@@ -57,10 +57,16 @@ fn make_iiq_df(iiq_files: &[PathBuf]) -> PolarsResult<DataFrame> {
         .map(|stem| NaiveDateTime::parse_from_str(&stem[..16], "%y%m%d_%H%M%S%3f").unwrap())
         .collect();
 
+    let sizes: Vec<u64> = iiq_files
+        .iter()
+        .map(|p| fs::metadata(p).map_or(0, |meta| meta.len()))
+        .collect();
+
     df!(
         "Path" => paths,
         "Stem" => stems,
-        "Datetime" => datetimes
+        "Datetime" => datetimes,
+        "Bytes" => sizes
     )
 }
 
@@ -89,10 +95,11 @@ fn find_files_recursive(dir: &Path, extension: &str, files: &mut Vec<PathBuf>) -
 }
 
 fn move_files(df: &DataFrame, dir: &Path, column_name: &str, verbose: bool) -> Result<()> {
-    let path_series = df.column(column_name)?.str().unwrap();
+    let path_series = df.column(column_name)?.str()?;
     let paths: Vec<PathBuf> = path_series
         .into_iter()
-        .filter_map(|s| s.map(PathBuf::from))
+        .flatten()
+        .map(PathBuf::from)
         .collect();
 
     // Move files to 'unmatched' directory
@@ -101,7 +108,7 @@ fn move_files(df: &DataFrame, dir: &Path, column_name: &str, verbose: bool) -> R
         if verbose {
             println!("{} -> {}", path.display(), dest.display());
         }
-        std::fs::rename(&path, &dest)?;
+        fs::rename(&path, &dest)?;
     }
 
     Ok(())
@@ -124,11 +131,13 @@ fn join_dataframes(rgb_df: &DataFrame, nir_df: &DataFrame) -> Result<DataFrame> 
     rgb_df.rename("Datetime", "Datetime_rgb")?;
     rgb_df.rename("Path", "Path_rgb")?;
     rgb_df.rename("Stem", "Stem_rgb")?;
+    rgb_df.rename("Bytes", "Bytes_rgb")?;
 
     let mut nir_df = nir_df.clone();
     nir_df.rename("Datetime", "Datetime_nir")?;
     nir_df.rename("Path", "Path_nir")?;
     nir_df.rename("Stem", "Stem_nir")?;
+    nir_df.rename("Bytes", "Bytes_nir")?;
 
     let matched_df_rgb = rgb_df
         .join_asof_by(
@@ -145,9 +154,11 @@ fn join_dataframes(rgb_df: &DataFrame, nir_df: &DataFrame) -> Result<DataFrame> 
             col("Path_rgb"),
             col("Stem_rgb"),
             col("Datetime_rgb"),
+            col("Bytes_rgb"),
             col("Path_nir"),
             col("Stem_nir"),
             col("Datetime_nir"),
+            col("Bytes_nir"),
         ])
         .collect()?;
 
@@ -166,9 +177,11 @@ fn join_dataframes(rgb_df: &DataFrame, nir_df: &DataFrame) -> Result<DataFrame> 
             col("Path_rgb"),
             col("Stem_rgb"),
             col("Datetime_rgb"),
+            col("Bytes_rgb"),
             col("Path_nir"),
             col("Stem_nir"),
             col("Datetime_nir"),
+            col("Bytes_nir"),
         ])
         .collect()?;
 
@@ -202,10 +215,11 @@ fn join_dataframes(rgb_df: &DataFrame, nir_df: &DataFrame) -> Result<DataFrame> 
 pub fn process_images(
     rgb_dir: &Path,
     nir_dir: &Path,
-    threshold: Duration,
+    match_threshold: Duration,
+    keep_empty_files: bool,
     dry_run: bool,
     verbose: bool,
-) -> Result<(usize, usize, usize)> {
+) -> Result<(usize, usize, usize, usize, usize)> {
     // Check that the directories exist
     let rgb_exists = rgb_dir.exists();
     let nir_exists = nir_dir.exists();
@@ -222,14 +236,23 @@ pub fn process_images(
     let nir_iiq_files = find_files(nir_dir, ".iiq")?;
 
     // Create dataframes
-    let rgb_df = make_iiq_df(&rgb_iiq_files)?;
-    let nir_df = make_iiq_df(&nir_iiq_files)?;
+    let mut rgb_df = make_iiq_df(&rgb_iiq_files)?;
+    let mut nir_df = make_iiq_df(&nir_iiq_files)?;
+
+    // Find 0 byte files
+    let rgb_df_empty = rgb_df.clone().lazy().filter(col("Bytes").lt_eq(0)).collect()?;
+    let nir_df_empty = nir_df.clone().lazy().filter(col("Bytes").lt_eq(0)).collect()?;
+    
+    if !keep_empty_files {
+        rgb_df = rgb_df.lazy().filter(col("Bytes").gt(0)).collect()?;
+        nir_df = nir_df.lazy().filter(col("Bytes").gt(0)).collect()?;
+    }
 
     // Do the join
     let joint_df = join_dataframes(&rgb_df, &nir_df)?;
 
     // Split df into matched and unmatched based on threshold
-    let thresh = threshold.as_nanos() as i64;
+    let thresh = match_threshold.as_nanos() as i64;
     let thresh_exp = lit(thresh).cast(DataType::Duration(TimeUnit::Nanoseconds));
 
     let matched_df = joint_df
@@ -293,9 +316,29 @@ pub fn process_images(
             fs::create_dir_all(&unmatched_nir_dir)?;
             move_files(&unmatched_nir_df, &unmatched_nir_dir, "Path_nir", verbose)?;
         }
+
+        // Move empty files
+        if !keep_empty_files {
+            if rgb_df_empty.height() > 0 {
+                let empty_rgb_dir = rgb_dir.join("empty");
+                if verbose {
+                    println!("Moving empty RGB files to {:?}", empty_rgb_dir);
+                }
+                fs::create_dir_all(&empty_rgb_dir)?;
+                move_files(&rgb_df_empty, &empty_rgb_dir, "Path", verbose)?;
+            }
+            if nir_df_empty.height() > 0 {
+                let empty_nir_dir = nir_dir.join("empty");
+                if verbose {
+                    println!("Moving empty NIR files to {:?}", empty_nir_dir);
+                }
+                fs::create_dir_all(&empty_nir_dir)?;
+                move_files(&nir_df_empty, &empty_nir_dir, "Path", verbose)?;
+            }
+        }
     }
 
-    Ok((rgb_df.height(), nir_df.height(), matched_df.height()))
+    Ok((rgb_iiq_files.len(), nir_iiq_files.len(), matched_df.height(), rgb_df_empty.height(), nir_df_empty.height()))
 }
 
 #[cfg(test)]
@@ -342,10 +385,11 @@ mod tests {
 
         let df = make_iiq_df(&files).unwrap();
 
-        assert_eq!(df.shape(), (2, 3));
+        assert_eq!(df.shape(), (2, 4));
         assert_eq!(df.column("Path").unwrap().len(), 2);
         assert_eq!(df.column("Stem").unwrap().len(), 2);
         assert_eq!(df.column("Datetime").unwrap().len(), 2);
+        assert_eq!(df.column("Bytes").unwrap().len(), 2);
 
         let stems: Vec<&str> = df
             .column("Stem")
@@ -384,7 +428,8 @@ mod tests {
                 NaiveDateTime::parse_from_str("2021-01-01 12:00:01", "%Y-%m-%d %H:%M:%S").unwrap(),
             ],
             "Path" => &["/path/to/rgb1.iiq", "/path/to/rgb2.iiq"],
-            "Stem" => &["rgb1", "rgb2"]
+            "Stem" => &["rgb1", "rgb2"],
+            "Bytes" => &[100, 200]
         )
         .unwrap();
 
@@ -394,14 +439,15 @@ mod tests {
                 NaiveDateTime::parse_from_str("2021-01-01 12:00:02", "%Y-%m-%d %H:%M:%S").unwrap(),
             ],
             "Path" => &["/path/to/nir1.iiq", "/path/to/nir2.iiq"],
-            "Stem" => &["nir1", "nir2"]
+            "Stem" => &["nir1", "nir2"],
+            "Bytes" => &[150, 250]
         )
         .unwrap();
 
         let result = join_dataframes(&rgb_data, &nir_data).unwrap();
 
-        assert_eq!(result.shape(), (2, 7));
-        assert!(result.column("dt").unwrap().null_count() == 0);
+        assert_eq!(result.shape(), (2, 9));
+        assert_eq!(result.column("dt").unwrap().null_count(), 0);
     }
 
     #[test]
@@ -447,12 +493,14 @@ mod tests {
         fs::write(nir_dir.join("210101_120001100.iiq"), "content").unwrap();
 
         let threshold = Duration::from_millis(200);
-        let (rgb_count, nir_count, matched_count) =
-            process_images(&rgb_dir, &nir_dir, threshold, false, false).unwrap();
+        let (rgb_count, nir_count, matched_count, empty_rgb_count, empty_nir_count) =
+            process_images(&rgb_dir, &nir_dir, threshold, false, false, false).unwrap();
 
         assert_eq!(rgb_count, 2);
         assert_eq!(nir_count, 2);
         assert_eq!(matched_count, 2);
+        assert_eq!(empty_rgb_count, 0);
+        assert_eq!(empty_nir_count, 0);
 
         // Check if files are in their original locations
         // (process_images doesn't move matched files in this case)
@@ -500,12 +548,14 @@ mod tests {
         fs::write(nir_dir.join("210101_120005000.iiq"), "content").unwrap(); // This one won't match
 
         let threshold = Duration::from_millis(200);
-        let (rgb_count, nir_count, matched_count) =
-            process_images(&rgb_dir, &nir_dir, threshold, true, false).unwrap();
+        let (rgb_count, nir_count, matched_count, empty_rgb_count, empty_nir_count) =
+            process_images(&rgb_dir, &nir_dir, threshold,true, true, false).unwrap();
 
         assert_eq!(rgb_count, 2);
         assert_eq!(nir_count, 2);
         assert_eq!(matched_count, 1);
+        assert_eq!(empty_rgb_count, 0);
+        assert_eq!(empty_nir_count, 0);
 
         // Check if all files are in their original locations (dry run)
         assert!(rgb_dir.join("210101_120000000.iiq").exists());
@@ -532,12 +582,14 @@ mod tests {
         fs::write(nir_dir.join("210101_120005000.iiq"), "content").unwrap();
 
         let threshold = Duration::from_millis(200);
-        let (rgb_count, nir_count, matched_count) =
-            process_images(&rgb_dir, &nir_dir, threshold, false, false).unwrap();
+        let (rgb_count, nir_count, matched_count, empty_rgb_count, empty_nir_count) =
+            process_images(&rgb_dir, &nir_dir, threshold, true, false, false).unwrap();
 
         assert_eq!(rgb_count, 2);
         assert_eq!(nir_count, 2);
         assert_eq!(matched_count, 1);
+        assert_eq!(empty_rgb_count, 0);
+        assert_eq!(empty_nir_count, 0);
 
         // Check if matched files are in their original locations
         assert!(rgb_dir.join("210101_120000000.iiq").exists());
@@ -571,12 +623,14 @@ mod tests {
         fs::write(nir_dir.join("210101_120005000.iiq"), "content").unwrap();
 
         let threshold = Duration::from_millis(200);
-        let (rgb_count, nir_count, matched_count) =
-            process_images(&rgb_dir, &nir_dir, threshold, false, false).unwrap();
+        let (rgb_count, nir_count, matched_count, empty_rgb_count, empty_nir_count) =
+            process_images(&rgb_dir, &nir_dir, threshold, true, false, false).unwrap();
 
         assert_eq!(rgb_count, 1);
         assert_eq!(nir_count, 2);
         assert_eq!(matched_count, 1);
+        assert_eq!(empty_rgb_count, 0);
+        assert_eq!(empty_nir_count, 0);
 
         // Check if matched files are in their original locations
         assert!(rgb_dir.join("210101_120000000.iiq").exists());
@@ -598,7 +652,77 @@ mod tests {
         let nir_dir = temp_dir.path().join("nir");
 
         let threshold = Duration::from_millis(200);
-        let result = process_images(&rgb_dir, &nir_dir, threshold, false, false);
+        let result = process_images(&rgb_dir, &nir_dir, threshold, true, false, false);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_process_images_with_keep_empty() {
+        let temp_dir = TempDir::new().unwrap();
+        let rgb_dir = temp_dir.path().join("rgb");
+        let nir_dir = temp_dir.path().join("nir");
+        fs::create_dir_all(&rgb_dir).unwrap();
+        fs::create_dir_all(&nir_dir).unwrap();
+
+        // Create test files
+        fs::write(rgb_dir.join("210101_120000000.iiq"), "content").unwrap();
+        fs::write(rgb_dir.join("210101_130000000.iiq"), "").unwrap();
+        fs::write(nir_dir.join("210101_120000100.iiq"), "content").unwrap();
+        fs::write(nir_dir.join("210101_130000100.iiq"), "").unwrap();
+
+        let threshold = Duration::from_millis(200);
+        let (rgb_count, nir_count, matched_count, empty_rgb_count, empty_nir_count) =
+            process_images(&rgb_dir, &nir_dir, threshold, true, false, false).unwrap();
+
+        assert_eq!(rgb_count, 2);
+        assert_eq!(nir_count, 2);
+        assert_eq!(matched_count, 2);
+        assert_eq!(empty_rgb_count, 1);
+        assert_eq!(empty_nir_count, 1);
+
+        // Check if matched files are in their original locations
+        assert!(rgb_dir.join("210101_120000000.iiq").exists());
+        assert!(nir_dir.join("210101_120000100.iiq").exists());
+        assert!(rgb_dir.join("210101_130000000.iiq").exists());
+        assert!(nir_dir.join("210101_130000100.iiq").exists());
+
+        // Check that no empty directories were created
+        assert!(!rgb_dir.join("empty").exists());
+        assert!(!nir_dir.join("empty").exists());
+    }
+
+    #[test]
+    fn test_process_images_with_no_keep_empty() {
+        let temp_dir = TempDir::new().unwrap();
+        let rgb_dir = temp_dir.path().join("rgb");
+        let nir_dir = temp_dir.path().join("nir");
+        fs::create_dir_all(&rgb_dir).unwrap();
+        fs::create_dir_all(&nir_dir).unwrap();
+
+        // Create test files
+        fs::write(rgb_dir.join("210101_120000000.iiq"), "content").unwrap();
+        fs::write(rgb_dir.join("210101_130000000.iiq"), "").unwrap();
+        fs::write(nir_dir.join("210101_120000100.iiq"), "content").unwrap();
+        fs::write(nir_dir.join("210101_130000100.iiq"), "").unwrap();
+
+        let threshold = Duration::from_millis(200);
+        let (rgb_count, nir_count, matched_count, empty_rgb_count, empty_nir_count) =
+            process_images(&rgb_dir, &nir_dir, threshold, false, false, false).unwrap();
+
+        assert_eq!(rgb_count, 2);
+        assert_eq!(nir_count, 2);
+        assert_eq!(matched_count, 1);
+        assert_eq!(empty_rgb_count, 1);
+        assert_eq!(empty_nir_count, 1);
+
+        // Check if matched files are in their original locations
+        assert!(rgb_dir.join("210101_120000000.iiq").exists());
+        assert!(nir_dir.join("210101_120000100.iiq").exists());
+
+        // Check if empty files are moved to the empty directory
+        assert!(rgb_dir.join("empty").join("210101_130000000.iiq").exists());
+        assert!(!rgb_dir.join("210101_130000000.iiq").exists());
+        assert!(nir_dir.join("empty").join("210101_130000100.iiq").exists());
+        assert!(!nir_dir.join("210101_130000100.iiq").exists());
     }
 }

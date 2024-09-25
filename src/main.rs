@@ -22,6 +22,10 @@ struct Args {
     #[arg(short, long, action = clap::ArgAction::SetTrue, default_value = "false")]
     dry_run: bool,
 
+    /// Keep empty files (do not filter out files with 0 bytes)
+    #[arg(short, long, action = clap::ArgAction::SetTrue, default_value = "false")]
+    keep_empty: bool,
+
     /// Pattern for finding directory containing RGB files
     #[arg(short, long, default_value = "C*_RGB")]
     rgb_pattern: String,
@@ -50,12 +54,10 @@ fn main() -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("NIR directory not found"))?;
 
     let thresh = Duration::from_millis(args.thresh);
-    match process_images(&rgb_dir, &nir_dir, thresh, args.dry_run, args.verbose) {
-        Ok((rgb_count, nir_count, matched_count)) => {
-            println!(
-                "RGB: {}, NIR: {} ({} match)",
-                rgb_count, nir_count, matched_count
-            );
+    match process_images(&rgb_dir, &nir_dir, thresh, args.keep_empty, args.dry_run, args.verbose) {
+        Ok((rgb_count, nir_count, matched_count, empty_rgb_files, empty_nir_files)) => {
+            println!("RGB: {rgb_count}, NIR: {nir_count} ({matched_count} match)");
+            println!("Empty files: RGB {empty_rgb_files}, NIR: {empty_nir_files}");
         }
         Err(e) => eprintln!("Error: {}", e),
     }
