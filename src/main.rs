@@ -1,10 +1,10 @@
 #![cfg(feature = "cli")]
 
-use anyhow::Result;
-use clap::Parser;
-
 use std::path::PathBuf;
 use std::time::Duration;
+
+use anyhow::Result;
+use clap::Parser;
 
 use ix_match::{find_dir_by_pattern, process_images};
 
@@ -54,7 +54,14 @@ fn main() -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("NIR directory not found"))?;
 
     let thresh = Duration::from_millis(args.thresh);
-    match process_images(&rgb_dir, &nir_dir, thresh, args.keep_empty, args.dry_run, args.verbose) {
+    match process_images(
+        &rgb_dir,
+        &nir_dir,
+        thresh,
+        args.keep_empty,
+        args.dry_run,
+        args.verbose,
+    ) {
         Ok((rgb_count, nir_count, matched_count, empty_rgb_files, empty_nir_files)) => {
             println!("RGB: {rgb_count}, NIR: {nir_count} ({matched_count} match)");
             println!("Empty files: RGB {empty_rgb_files}, NIR: {empty_nir_files}");

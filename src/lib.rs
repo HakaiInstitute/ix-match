@@ -1,12 +1,12 @@
-use anyhow::{anyhow, Context, Result};
-use chrono::prelude::*;
 use std::collections::HashMap;
-
-use chrono::TimeDelta;
 use std::fs;
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+use anyhow::{anyhow, Context, Result};
+use chrono::prelude::*;
+use chrono::TimeDelta;
 
 mod filesystem;
 pub use filesystem::find_dir_by_pattern;
@@ -22,10 +22,22 @@ struct IIQFile {
 
 impl IIQFile {
     pub fn new(path: &PathBuf) -> Result<Self> {
-        let name = path.file_name().context("Failed to get file name")?.to_str().context("Failed to convert file name to string")?;
-        let stem = path.file_stem().context("Failed to get file stem")?.to_str().context("Failed to convert file stem to string")?;
-        let datetime = NaiveDateTime::parse_from_str(&stem[..16], "%y%m%d_%H%M%S%3f").context("Failed to parse datetime from stem")?;
-        let bytes = path.metadata().context("Failed to get file metadata")?.len();
+        let name = path
+            .file_name()
+            .context("Failed to get file name")?
+            .to_str()
+            .context("Failed to convert file name to string")?;
+        let stem = path
+            .file_stem()
+            .context("Failed to get file stem")?
+            .to_str()
+            .context("Failed to convert file stem to string")?;
+        let datetime = NaiveDateTime::parse_from_str(&stem[..16], "%y%m%d_%H%M%S%3f")
+            .context("Failed to parse datetime from stem")?;
+        let bytes = path
+            .metadata()
+            .context("Failed to get file metadata")?
+            .len();
         Ok(IIQFile {
             path: path.to_owned(),
             name: name.to_owned(),
@@ -40,10 +52,9 @@ impl IIQFile {
     }
 
     fn abs_diff(&self, other: &NaiveDateTime) -> Duration {
-        Duration::from_millis(self.diff(other).num_milliseconds().abs() as u64)
+        Duration::from_millis(self.diff(other).num_milliseconds().unsigned_abs())
     }
 }
-
 
 #[derive(Debug, Clone)]
 struct IIQCollection {
@@ -52,8 +63,10 @@ struct IIQCollection {
 
 impl IIQCollection {
     pub fn new(paths: &[PathBuf]) -> Result<Self> {
-        let mut files = paths.iter()
-            .map(|p| IIQFile::new(p)).collect::<Result<Vec<IIQFile>>>()
+        let mut files = paths
+            .iter()
+            .map(IIQFile::new)
+            .collect::<Result<Vec<IIQFile>>>()
             .context("Could not parse all files")?;
         // Sort files by datetime
         files.sort_by_key(|f| f.datetime);
@@ -97,12 +110,17 @@ impl IIQCollection {
         while low <= high {
             let mid = (low + high) / 2;
             // Find diff in millis
-            let diff = self.files[mid].diff(target_datetime).num_milliseconds().abs();
+            let diff = self.files[mid]
+                .diff(target_datetime)
+                .num_milliseconds()
+                .abs();
             if diff == 0 {
                 return Ok(&self.files[mid]);
             }
 
-            if diff < closest_diff || (diff == closest_diff && self.files[mid].datetime < *target_datetime) {
+            if diff < closest_diff
+                || (diff == closest_diff && self.files[mid].datetime < *target_datetime)
+            {
                 closest_diff = diff;
                 closest_file = Some(&self.files[mid]);
             }
@@ -141,13 +159,16 @@ impl<'a> JoinedIIQCollection<'a> {
         let key_collection = if rgb_shorter { rgb } else { nir };
         let other_collection = if rgb_shorter { nir } else { rgb };
 
-        let mut join_hash = other_collection.files.iter()
+        let mut join_hash = other_collection
+            .files
+            .iter()
             .map(|f| (f, (None, Duration::MAX)))
             .collect::<HashMap<_, _>>();
 
         // Match 1:1 the files.
         for iiq in key_collection.files.iter() {
-            let closest_other_file = other_collection.get_closest_file_by_datetime(&iiq.datetime)?;
+            let closest_other_file =
+                other_collection.get_closest_file_by_datetime(&iiq.datetime)?;
             let dt = iiq.abs_diff(&closest_other_file.datetime);
 
             let v = join_hash.get_mut(&closest_other_file);
@@ -166,63 +187,65 @@ impl<'a> JoinedIIQCollection<'a> {
 
         if rgb_shorter {
             // Reverse tuples, so that order is (rgb, nir)
-            joined = joined.into_iter().map(|(nir, rgb, dt)| (rgb, nir, dt)).collect();
+            joined = joined
+                .into_iter()
+                .map(|(nir, rgb, dt)| (rgb, nir, dt))
+                .collect();
         }
 
         Ok(JoinedIIQCollection { joined })
     }
 
-    fn len(&self) -> usize {
-        self.joined.len()
-    }
-
     fn get_matched(&self, max_dt: &Duration) -> Vec<(&IIQFile, &IIQFile)> {
         self.joined
             .iter()
-            .filter(|(rgb, nir, dt)| {
-                rgb.is_some() && nir.is_some() && dt <= max_dt
-            })
+            .filter(|(rgb, nir, dt)| rgb.is_some() && nir.is_some() && dt <= max_dt)
             .map(|(rgb, nir, _)| (rgb.unwrap(), nir.unwrap()))
             .collect()
     }
 
     fn get_matched_rgb(&self, max_dt: &Duration) -> IIQCollection {
-        self.get_matched(max_dt).iter()
+        self.get_matched(max_dt)
+            .iter()
             .map(|(rgb, _)| (*rgb).clone())
-            .collect::<Vec<IIQFile>>().into()
+            .collect::<Vec<IIQFile>>()
+            .into()
     }
 
     fn get_matched_nir(&self, max_dt: &Duration) -> IIQCollection {
-        self.get_matched(max_dt).iter()
+        self.get_matched(max_dt)
+            .iter()
             .map(|(_, nir)| (*nir).clone())
-            .collect::<Vec<IIQFile>>().into()
+            .collect::<Vec<IIQFile>>()
+            .into()
     }
 
     fn get_unmatched(&self, max_dt: &Duration) -> Vec<(Option<&IIQFile>, Option<&IIQFile>)> {
         self.joined
             .iter()
-            .filter(|(rgb, nir, dt)| {
-                (rgb.is_none() || nir.is_none()) || dt > max_dt
-            })
+            .filter(|(rgb, nir, dt)| (rgb.is_none() || nir.is_none()) || dt > max_dt)
             .map(|(rgb, nir, _)| (*rgb, *nir))
             .collect()
     }
 
     fn get_unmatched_rgb(&self, max_dt: &Duration) -> IIQCollection {
-        self.get_unmatched(max_dt).iter()
+        self.get_unmatched(max_dt)
+            .iter()
             .filter(|(rgb, _)| rgb.is_some())
             .map(|(rgb, _)| (*rgb).unwrap().clone())
-            .collect::<Vec<IIQFile>>().into()
+            .collect::<Vec<IIQFile>>()
+            .into()
     }
 
     fn get_unmatched_nir(&self, max_dt: &Duration) -> IIQCollection {
-        self.get_unmatched(max_dt).iter()
+        self.get_unmatched(max_dt)
+            .iter()
             .filter(|(_, nir)| nir.is_some())
             .map(|(_, nir)| (*nir).unwrap().clone())
-            .collect::<Vec<IIQFile>>().into()
+            .collect::<Vec<IIQFile>>()
+            .into()
     }
 }
-
 
 pub fn process_images(
     rgb_dir: &Path,
@@ -311,7 +334,13 @@ pub fn process_images(
         }
     }
 
-    Ok((rgb_iiq_files.len(), nir_iiq_files.len(), matched_rgb.len(), empty_rgb_files_len, empty_nir_files_len))
+    Ok((
+        rgb_iiq_files.len(),
+        nir_iiq_files.len(),
+        matched_rgb.len(),
+        empty_rgb_files_len,
+        empty_nir_files_len,
+    ))
 }
 
 #[cfg(test)]
@@ -382,13 +411,24 @@ mod tests {
 
         let result = JoinedIIQCollection::new(&rgb_collection, &nir_collection).unwrap();
 
-        assert_eq!(result.len(), 2);
+        assert_eq!(result.joined.len(), 2);
         let mut joined = result.joined;
         joined.sort();
-        assert_eq!(joined, vec![
-            (Some(&rgb_collection.files[0]), Some(&nir_collection.files[0]), Duration::from_millis(100)),
-            (Some(&rgb_collection.files[1]), Some(&nir_collection.files[1]), Duration::from_millis(100)),
-        ]);
+        assert_eq!(
+            joined,
+            vec![
+                (
+                    Some(&rgb_collection.files[0]),
+                    Some(&nir_collection.files[0]),
+                    Duration::from_millis(100)
+                ),
+                (
+                    Some(&rgb_collection.files[1]),
+                    Some(&nir_collection.files[1]),
+                    Duration::from_millis(100)
+                ),
+            ]
+        );
     }
 
     #[test]
@@ -661,23 +701,33 @@ mod tests {
 
         let collection = IIQCollection::new(&files).unwrap();
 
-        let target_datetime = NaiveDateTime::parse_from_str("210101_120000500", "%y%m%d_%H%M%S%3f").unwrap();
-        let closest_file = collection.get_closest_file_by_datetime(&target_datetime).unwrap();
+        let target_datetime =
+            NaiveDateTime::parse_from_str("210101_120000500", "%y%m%d_%H%M%S%3f").unwrap();
+        let closest_file = collection
+            .get_closest_file_by_datetime(&target_datetime)
+            .unwrap();
         assert_eq!(closest_file.path, files[0]);
 
-        let target_datetime = NaiveDateTime::parse_from_str("210101_120001500", "%y%m%d_%H%M%S%3f").unwrap();
-        let closest_file = collection.get_closest_file_by_datetime(&target_datetime).unwrap();
+        let target_datetime =
+            NaiveDateTime::parse_from_str("210101_120001500", "%y%m%d_%H%M%S%3f").unwrap();
+        let closest_file = collection
+            .get_closest_file_by_datetime(&target_datetime)
+            .unwrap();
         assert_eq!(closest_file.path, files[1]);
 
-        let target_datetime = NaiveDateTime::parse_from_str("210101_120002500", "%y%m%d_%H%M%S%3f").unwrap();
-        let closest_file = collection.get_closest_file_by_datetime(&target_datetime).unwrap();
+        let target_datetime =
+            NaiveDateTime::parse_from_str("210101_120002500", "%y%m%d_%H%M%S%3f").unwrap();
+        let closest_file = collection
+            .get_closest_file_by_datetime(&target_datetime)
+            .unwrap();
         assert_eq!(closest_file.path, files[2]);
     }
 
     #[test]
     fn test_get_closest_file_by_datetime_empty_collection() {
         let collection = IIQCollection { files: vec![] };
-        let target_datetime = NaiveDateTime::parse_from_str("210101_120000500", "%y%m%d_%H%M%S%3f").unwrap();
+        let target_datetime =
+            NaiveDateTime::parse_from_str("210101_120000500", "%y%m%d_%H%M%S%3f").unwrap();
         let result = collection.get_closest_file_by_datetime(&target_datetime);
         assert!(result.is_err());
     }

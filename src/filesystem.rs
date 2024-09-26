@@ -1,8 +1,8 @@
-use anyhow::{Context, Result};
-use glob::glob;
-
 use std::fs;
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
+
+use anyhow::{Context, Result};
+use glob::glob;
 
 pub fn find_dir_by_pattern(base_dir: &PathBuf, dir_pattern: &str) -> Option<PathBuf> {
     let pattern = format!(
@@ -36,7 +36,6 @@ pub fn find_dir_by_pattern(base_dir: &PathBuf, dir_pattern: &str) -> Option<Path
     }
 }
 
-
 pub fn find_files(dir: &Path, extension: &str) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     find_files_recursive(dir, extension, &mut files)?;
@@ -64,7 +63,10 @@ fn find_files_recursive(dir: &Path, extension: &str, files: &mut Vec<PathBuf>) -
 pub fn move_files(paths: Vec<PathBuf>, dir: &Path, verbose: bool) -> Result<()> {
     // Move files to 'unmatched' directory
     for path in paths {
-        let dest = dir.join(path.file_name().context("Failed to get file destination name")?);
+        let dest = dir.join(
+            path.file_name()
+                .context("Failed to get file destination name")?,
+        );
         if verbose {
             println!("{} -> {}", path.display(), dest.display());
         }
@@ -77,8 +79,8 @@ pub fn move_files(paths: Vec<PathBuf>, dir: &Path, verbose: bool) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
 
     #[test]
     fn test_find_dir_by_pattern() {
@@ -130,10 +132,7 @@ mod tests {
         fs::create_dir_all(&source_dir).unwrap();
         fs::create_dir_all(&dest_dir).unwrap();
 
-        let paths = vec![
-            source_dir.join("file1.txt"),
-            source_dir.join("file2.txt"),
-        ];
+        let paths = vec![source_dir.join("file1.txt"), source_dir.join("file2.txt")];
 
         // Create test files
         for path in &paths {
