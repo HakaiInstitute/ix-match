@@ -27,11 +27,11 @@ struct Args {
     keep_empty: bool,
 
     /// Pattern for finding directory containing RGB files
-    #[arg(short, long, default_value = "C*_RGB")]
+    #[arg(short, long, default_value = "CAMERA_RGB")]
     rgb_pattern: String,
 
     /// Pattern for finding directory containing NIR files
-    #[arg(short, long, default_value = "C*_NIR")]
+    #[arg(short, long, default_value = "CAMERA_NIR")]
     nir_pattern: String,
 
     /// Threshold for matching images in milliseconds
@@ -41,16 +41,20 @@ struct Args {
     /// Verbose output
     #[arg(short, long)]
     verbose: bool,
+
+    /// Case-sensitive pattern matching on directory names
+    #[arg(short, long, action=clap::ArgAction::SetTrue, default_value = "false")]
+    case_sensitive: bool,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
     let iiq_dir = args.iiq_dir;
 
-    let rgb_dir = find_dir_by_pattern(&iiq_dir, &args.rgb_pattern)
+    let rgb_dir = find_dir_by_pattern(&iiq_dir, &args.rgb_pattern, args.case_sensitive)
         .ok_or_else(|| anyhow::anyhow!("RGB directory not found"))?;
 
-    let nir_dir = find_dir_by_pattern(&iiq_dir, &args.nir_pattern)
+    let nir_dir = find_dir_by_pattern(&iiq_dir, &args.nir_pattern, args.case_sensitive)
         .ok_or_else(|| anyhow::anyhow!("NIR directory not found"))?;
 
     let thresh = Duration::from_millis(args.thresh);
