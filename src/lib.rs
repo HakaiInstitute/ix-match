@@ -267,8 +267,8 @@ pub fn process_images(
     }
 
     // Find IIQ files
-    let rgb_iiq_files = filesystem::find_files(rgb_dir, ".iiq")?;
-    let nir_iiq_files = filesystem::find_files(nir_dir, ".iiq")?;
+    let rgb_iiq_files = filesystem::find_files(rgb_dir, "iiq")?;
+    let nir_iiq_files = filesystem::find_files(nir_dir, "iiq")?;
 
     // Create collections
     let mut rgb_collection = IIQCollection::new(&rgb_iiq_files)?;
@@ -445,8 +445,8 @@ mod tests {
         fs::write(rgb_dir.join("210101_120001000.iiq"), "content").unwrap();
         fs::write(nir_dir.join("210101_120001100.iiq"), "content").unwrap();
 
-        let rgb_files = filesystem::find_files(&rgb_dir, ".iiq").unwrap();
-        let nir_files = filesystem::find_files(&nir_dir, ".iiq").unwrap();
+        let rgb_files = filesystem::find_files(&rgb_dir, "iiq").unwrap();
+        let nir_files = filesystem::find_files(&nir_dir, "iiq").unwrap();
 
         let rgb_collection = IIQCollection::new(&rgb_files).unwrap();
         let nir_collection = IIQCollection::new(&nir_files).unwrap();

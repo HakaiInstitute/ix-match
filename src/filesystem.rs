@@ -1,24 +1,29 @@
 use std::fs;
-use std::path::{Path, PathBuf, MAIN_SEPARATOR};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use glob::glob;
+use globwalker::{FileType, GlobWalkerBuilder};
 
-pub fn find_dir_by_pattern(base_dir: &PathBuf, dir_pattern: &str) -> Option<PathBuf> {
-    let pattern = format!(
-        "{}{}{}",
-        base_dir.to_string_lossy(),
-        MAIN_SEPARATOR,
-        dir_pattern
-    );
-    let dirs: Vec<_> = glob(&pattern)
-        .expect("Failed to read glob pattern")
+pub fn find_dir_by_pattern(
+    base_dir: &PathBuf,
+    dir_pattern: &str,
+    case_sensitive: bool,
+) -> Option<PathBuf> {
+    let walker = GlobWalkerBuilder::from_patterns(base_dir, &[dir_pattern])
+        .case_insensitive(!case_sensitive)
+        .follow_links(true)
+        .max_depth(1)
+        .file_type(FileType::DIR)
+        .build()
+        .expect("Failed to create glob walker");
+
+    let mut dirs: Vec<_> = walker
         .filter_map(Result::ok)
-        .filter(|path| path.is_dir())
+        .map(|entry| entry.into_path())
         .collect();
 
     match dirs.len() {
-        1 => Some(dirs[0].clone()),
+        1 => dirs.pop(),
         0 => {
             println!(
                 "No directory matching '{}' found in {:?}",
@@ -36,28 +41,21 @@ pub fn find_dir_by_pattern(base_dir: &PathBuf, dir_pattern: &str) -> Option<Path
     }
 }
 
-pub fn find_files(dir: &Path, extension: &str) -> Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    find_files_recursive(dir, extension, &mut files)?;
-    Ok(files)
-}
+pub fn find_files(base_dir: &Path, extension: &str) -> Result<Vec<PathBuf>> {
+    let pattern = format!("**/*.{}", extension);
 
-fn find_files_recursive(dir: &Path, extension: &str, files: &mut Vec<PathBuf>) -> Result<()> {
-    if dir.is_dir() {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                find_files_recursive(&path, extension, files)?;
-            } else if path.is_file()
-                && path.extension().and_then(|s| s.to_str())
-                    == Some(extension.trim_start_matches('.'))
-            {
-                files.push(path);
-            }
-        }
-    }
-    Ok(())
+    let walker = GlobWalkerBuilder::from_patterns(base_dir, &[pattern])
+        .follow_links(true)
+        .file_type(FileType::FILE)
+        .build()
+        .expect("Failed to create glob walker");
+
+    let files: Vec<_> = walker
+        .filter_map(Result::ok)
+        .map(|entry| entry.into_path())
+        .collect();
+
+    Ok(files)
 }
 
 pub fn move_files(paths: Vec<PathBuf>, dir: &Path, verbose: bool) -> Result<()> {
@@ -90,22 +88,24 @@ mod tests {
         fs::create_dir(base_path.join("test_dir_123")).unwrap();
         fs::create_dir(base_path.join("another_dir_456")).unwrap();
 
-        let result = find_dir_by_pattern(&base_path, "test_dir_*");
+        let result = find_dir_by_pattern(&base_path, "test_dir_*", true);
         assert!(result.is_some());
         assert_eq!(result.unwrap().file_name().unwrap(), "test_dir_123");
 
-        let no_match = find_dir_by_pattern(&base_path, "nonexistent_*");
+        let no_match = find_dir_by_pattern(&base_path, "nonexistent_*", true);
         assert!(no_match.is_none());
 
         fs::create_dir(base_path.join("CAMERA_RGB")).unwrap();
-        let result = find_dir_by_pattern(&base_path, "C*_RGB");
+        let result = find_dir_by_pattern(&base_path, "C*_RGB", true);
         assert!(result.is_some());
         assert_eq!(result.unwrap().file_name().unwrap(), "CAMERA_RGB");
 
-        fs::create_dir(base_path.join("Camera_NIR")).unwrap();
-        let result = find_dir_by_pattern(&base_path, "C*_NIR");
+        fs::create_dir(base_path.join("camera_nir")).unwrap();
+        let result = find_dir_by_pattern(&base_path, "CAMERA_NIR", true);
+        assert!(result.is_none());
+        let result = find_dir_by_pattern(&base_path, "CAMERA_NIR", false);
         assert!(result.is_some());
-        assert_eq!(result.unwrap().file_name().unwrap(), "Camera_NIR");
+        assert_eq!(result.unwrap().file_name().unwrap(), "camera_nir");
     }
 
     #[test]
@@ -145,24 +145,5 @@ mod tests {
         assert!(!source_dir.join("file2.txt").exists());
         assert!(dest_dir.join("file1.txt").exists());
         assert!(dest_dir.join("file2.txt").exists());
-    }
-
-    #[test]
-    fn test_find_files_recursive() {
-        let temp_dir = TempDir::new().unwrap();
-        let base_path = temp_dir.path();
-        let sub_dir = base_path.join("subdir");
-        fs::create_dir_all(&sub_dir).unwrap();
-
-        fs::write(base_path.join("test1.txt"), "content").unwrap();
-        fs::write(base_path.join("test2.doc"), "content").unwrap();
-        fs::write(sub_dir.join("test3.txt"), "content").unwrap();
-
-        let mut files = Vec::new();
-        find_files_recursive(base_path, "txt", &mut files).unwrap();
-
-        assert_eq!(files.len(), 2);
-        assert!(files.iter().any(|f| f.file_name().unwrap() == "test1.txt"));
-        assert!(files.iter().any(|f| f.file_name().unwrap() == "test3.txt"));
     }
 }
