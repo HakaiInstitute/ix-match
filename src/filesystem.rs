@@ -42,9 +42,12 @@ pub fn find_dir_by_pattern(
 }
 
 pub fn find_files(base_dir: &Path, extension: &str) -> Result<Vec<PathBuf>> {
+    let canonical_base_dir = base_dir
+        .canonicalize()
+        .context("Failed to canonicalize base dir")?;
     let pattern = format!("**/*.{}", extension);
 
-    let walker = GlobWalkerBuilder::from_patterns(base_dir, &[pattern])
+    let walker = GlobWalkerBuilder::from_patterns(canonical_base_dir, &[pattern])
         .follow_links(true)
         .file_type(FileType::FILE)
         .build()
@@ -122,6 +125,26 @@ mod tests {
 
         let doc_files = find_files(base_path, "doc").unwrap();
         assert_eq!(doc_files.len(), 1);
+    }
+
+    #[test]
+    fn test_find_files_nested() {
+        let temp_dir = TempDir::new().unwrap();
+        let base_path = temp_dir.path();
+        let base_sub_path = base_path.join("subdir");
+        fs::create_dir(base_path.join("subdir")).unwrap();
+
+        fs::write(base_path.join("test1.iiq"), "content").unwrap();
+        fs::write(base_sub_path.join("test2.iiq"), "content").unwrap();
+        fs::write(base_sub_path.join("test3.iiq"), "content").unwrap();
+        fs::write(base_path.join("test1.txt"), "content").unwrap();
+        fs::write(base_sub_path.join("test3.txt"), "content").unwrap();
+
+        let iiq_files = find_files(base_path, "iiq").unwrap();
+        assert_eq!(iiq_files.len(), 3);
+
+        let txt_files = find_files(base_path, "txt").unwrap();
+        assert_eq!(txt_files.len(), 2);
     }
 
     #[test]

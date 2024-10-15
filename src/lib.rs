@@ -255,10 +255,7 @@ impl<'a> JoinedIIQCollection<'a> {
     }
 }
 
-fn check_rgb_nir_dirs_exist(
-    rgb_dir: &Path,
-    nir_dir: &Path,
-) -> Result<()> {
+fn check_rgb_nir_dirs_exist(rgb_dir: &Path, nir_dir: &Path) -> Result<()> {
     let rgb_exists = rgb_dir.exists();
     let nir_exists = nir_dir.exists();
     if !rgb_exists && !nir_exists {

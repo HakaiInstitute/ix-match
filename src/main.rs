@@ -28,15 +28,15 @@ struct Args {
     revert: bool,
 
     /// Keep empty files (do not filter out files with 0 bytes)
-    #[arg(short, long, action = clap::ArgAction::SetTrue, default_value = "false")]
+    #[arg(long, action = clap::ArgAction::SetTrue, default_value = "false")]
     keep_empty: bool,
 
     /// Pattern for finding directory containing RGB files
-    #[arg(short, long, default_value = "CAMERA_RGB")]
+    #[arg(long, default_value = "CAMERA_RGB")]
     rgb_pattern: String,
 
     /// Pattern for finding directory containing NIR files
-    #[arg(short, long, default_value = "CAMERA_NIR")]
+    #[arg(long, default_value = "CAMERA_NIR")]
     nir_pattern: String,
 
     /// Threshold for matching images in milliseconds
@@ -89,4 +89,50 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    
+    #[test]
+    fn test_find_dir_by_pattern() {
+        let iiq_dir = tempdir().unwrap().path().to_path_buf();
+        let rgb_dir = iiq_dir.join("CAMERA_RGB/240101_1200");
+        let nir_dir = iiq_dir.join("CAMERA_NIR/240101_1200");
+        std::fs::create_dir_all(&rgb_dir).unwrap();
+        std::fs::create_dir_all(&nir_dir).unwrap();
+        
+        let rgb_files = vec!["240101_1200_0001.iiq", "240101_1200_0002.iiq"];
+        let nir_files = vec!["240101_1200_0001.iiq", "240101_1200_0002.iiq"];
+        for file in rgb_files.iter().chain(nir_files.iter()) {
+            std::fs::write(rgb_dir.join(file), "content").unwrap();
+        }
+        
+        let args = Args::try_parse_from(vec!["."]).unwrap();
+        let iiq_dir = args.iiq_dir;
+
+        let rgb_dir = find_dir_by_pattern(&iiq_dir, &args.rgb_pattern, args.case_sensitive)
+            .ok_or_else(|| anyhow::anyhow!("RGB directory not found"))?;
+
+        let nir_dir = find_dir_by_pattern(&iiq_dir, &args.nir_pattern, args.case_sensitive)
+            .ok_or_else(|| anyhow::anyhow!("NIR directory not found"))?;
+        
+        let thresh = Duration::from_millis(args.thresh);
+        let (rgb_count, nir_count, matched_count, empty_rgb_files, empty_nir_files) = process_images(
+            &rgb_dir,
+            &nir_dir,
+            thresh,
+            args.keep_empty,
+            args.dry_run,
+            args.verbose,
+        ).unwrap();
+        
+        assert_eq!(rgb_count, 2);
+        assert_eq!(nir_count, 2);
+        assert_eq!(matched_count, 2);
+        assert_eq!(empty_rgb_files, 0);
+        assert_eq!(empty_nir_files, 0);
+    }
 }
