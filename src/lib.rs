@@ -356,6 +356,16 @@ pub fn process_images(
     ))
 }
 
+fn remove_dir_if_empty(dir: &Path) -> Result<()> {
+    if dir.exists() {
+        let is_empty = dir.read_dir()?.next().is_none();
+        if is_empty {
+            fs::remove_dir(dir)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn revert_changes(
     rgb_dir: &Path,
     nir_dir: &Path,
@@ -381,6 +391,8 @@ pub fn revert_changes(
                 eprintln!("Parent directory does not exist for file {}", file.name);
             }
         }
+        remove_dir_if_empty(&rgb_dir.join("empty"))?;
+        remove_dir_if_empty(&rgb_dir.join("unmatched"))?;
 
         for file in nir_collection.iter() {
             let dest = &nir_dir.join(file.original_parent_dir_name());
@@ -390,6 +402,8 @@ pub fn revert_changes(
                 eprintln!("Parent directory does not exist for file {}", file.name);
             }
         }
+        remove_dir_if_empty(&nir_dir.join("empty"))?;
+        remove_dir_if_empty(&nir_dir.join("unmatched"))?;
     }
 
     Ok((rgb_iiq_files.len(), nir_iiq_files.len()))
