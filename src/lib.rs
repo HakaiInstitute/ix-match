@@ -54,6 +54,10 @@ impl IIQFile {
     fn abs_diff(&self, other: &NaiveDateTime) -> Duration {
         Duration::from_millis(self.diff(other).num_milliseconds().unsigned_abs())
     }
+
+    fn original_parent_dir_name(&self) -> String {
+        self.stem[..11].to_string()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -92,6 +96,10 @@ impl IIQCollection {
         self.files = non_empty_files;
 
         IIQCollection { files: empty_files }
+    }
+
+    fn iter(&self) -> std::slice::Iter<'_, IIQFile> {
+        self.files.iter()
     }
 
     fn get_closest_file_by_datetime(&self, target_datetime: &NaiveDateTime) -> Result<&IIQFile> {
@@ -247,6 +255,23 @@ impl<'a> JoinedIIQCollection<'a> {
     }
 }
 
+fn check_rgb_nir_dirs_exist(
+    rgb_dir: &Path,
+    nir_dir: &Path,
+) -> Result<()> {
+    let rgb_exists = rgb_dir.exists();
+    let nir_exists = nir_dir.exists();
+    if !rgb_exists && !nir_exists {
+        Err(anyhow!("RGB and NIR directories do not exist"))
+    } else if !rgb_exists {
+        Err(anyhow!("RGB directory does not exist"))
+    } else if !nir_exists {
+        Err(anyhow!("NIR directory does not exist"))
+    } else {
+        Ok(())
+    }
+}
+
 pub fn process_images(
     rgb_dir: &Path,
     nir_dir: &Path,
@@ -255,16 +280,7 @@ pub fn process_images(
     dry_run: bool,
     verbose: bool,
 ) -> Result<(usize, usize, usize, usize, usize)> {
-    // Check that the directories exist
-    let rgb_exists = rgb_dir.exists();
-    let nir_exists = nir_dir.exists();
-    if !rgb_exists || !nir_exists {
-        return Err(anyhow::anyhow!("RGB and NIR directories do not exist"));
-    } else if !rgb_exists {
-        return Err(anyhow::anyhow!("RGB directory does not exist"));
-    } else if !nir_exists {
-        return Err(anyhow::anyhow!("NIR directory does not exist"));
-    }
+    check_rgb_nir_dirs_exist(rgb_dir, nir_dir)?;
 
     // Find IIQ files
     let rgb_iiq_files = filesystem::find_files(rgb_dir, "iiq")?;
@@ -341,6 +357,45 @@ pub fn process_images(
         empty_rgb_files_len,
         empty_nir_files_len,
     ))
+}
+
+pub fn revert_changes(
+    rgb_dir: &Path,
+    nir_dir: &Path,
+    dry_run: bool,
+    verbose: bool,
+) -> Result<(usize, usize)> {
+    check_rgb_nir_dirs_exist(rgb_dir, nir_dir)?;
+
+    // Find IIQ files
+    let rgb_iiq_files = filesystem::find_files(rgb_dir, "iiq")?;
+    let nir_iiq_files = filesystem::find_files(nir_dir, "iiq")?;
+
+    // Create collections
+    let rgb_collection = IIQCollection::new(&rgb_iiq_files)?;
+    let nir_collection = IIQCollection::new(&nir_iiq_files)?;
+
+    if !dry_run {
+        for file in rgb_collection.iter() {
+            let dest = &rgb_dir.join(file.original_parent_dir_name());
+            if dest.exists() {
+                filesystem::move_files(vec![file.path.clone()], dest, verbose)?;
+            } else {
+                eprintln!("Parent directory does not exist for file {}", file.name);
+            }
+        }
+
+        for file in nir_collection.iter() {
+            let dest = &nir_dir.join(file.original_parent_dir_name());
+            if dest.exists() {
+                filesystem::move_files(vec![file.path.clone()], dest, verbose)?;
+            } else {
+                eprintln!("Parent directory does not exist for file {}", file.name);
+            }
+        }
+    }
+
+    Ok((rgb_iiq_files.len(), nir_iiq_files.len()))
 }
 
 #[cfg(test)]
@@ -730,5 +785,91 @@ mod tests {
             NaiveDateTime::parse_from_str("210101_120000500", "%y%m%d_%H%M%S%3f").unwrap();
         let result = collection.get_closest_file_by_datetime(&target_datetime);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_revert_changes() {
+        let temp_dir = TempDir::new().unwrap();
+        let rgb_dir = temp_dir.path().join("rgb");
+        let nir_dir = temp_dir.path().join("nir");
+        let rgb_empty_dir = rgb_dir.join("empty");
+        let nir_unmatched_dir = nir_dir.join("unmatched");
+        fs::create_dir_all(&rgb_dir).unwrap();
+        fs::create_dir_all(&nir_dir).unwrap();
+        fs::create_dir_all(&rgb_empty_dir).unwrap();
+        fs::create_dir_all(&nir_unmatched_dir).unwrap();
+
+        // Create test files
+        fs::write(rgb_dir.join("210101_120100000.iiq"), "content").unwrap();
+        fs::write(nir_dir.join("210101_120100100.iiq"), "content").unwrap();
+
+        fs::write(rgb_dir.join("210101_130000040.iiq"), "content").unwrap();
+        fs::write(nir_dir.join("210101_130000040.iiq"), "content").unwrap();
+
+        fs::write(rgb_empty_dir.join("210101_140000000.iiq"), "").unwrap();
+        fs::write(nir_unmatched_dir.join("210101_140000100.iiq"), "").unwrap();
+
+        // Create original directories
+        fs::create_dir_all(&rgb_dir.join("210101_1201")).unwrap();
+        fs::create_dir_all(&nir_dir.join("210101_1201")).unwrap();
+        fs::create_dir_all(&rgb_dir.join("210101_1300")).unwrap();
+        fs::create_dir_all(&nir_dir.join("210101_1300")).unwrap();
+        fs::create_dir_all(&rgb_dir.join("210101_1400")).unwrap();
+        fs::create_dir_all(&nir_dir.join("210101_1400")).unwrap();
+
+        let (rgb_count, nir_count) = revert_changes(&rgb_dir, &nir_dir, false, false).unwrap();
+
+        assert_eq!(rgb_count, 3);
+        assert_eq!(nir_count, 3);
+
+        assert!(rgb_dir.join("210101_1201/210101_120100000.iiq").exists());
+        assert!(nir_dir.join("210101_1201/210101_120100100.iiq").exists());
+        assert!(rgb_dir.join("210101_1300/210101_130000040.iiq").exists());
+        assert!(nir_dir.join("210101_1300/210101_130000040.iiq").exists());
+        assert!(rgb_dir.join("210101_1400/210101_140000000.iiq").exists());
+        assert!(nir_dir.join("210101_1400/210101_140000100.iiq").exists());
+    }
+
+    #[test]
+    fn test_revert_changes_with_empty_dir() {
+        let temp_dir = TempDir::new().unwrap();
+        let rgb_dir = temp_dir.path().join("rgb");
+        let nir_dir = temp_dir.path().join("nir");
+        let rgb_empty_dir = rgb_dir.join("empty");
+        let nir_unmatched_dir = nir_dir.join("unmatched");
+        fs::create_dir_all(&rgb_dir).unwrap();
+        fs::create_dir_all(&nir_dir).unwrap();
+        fs::create_dir_all(&rgb_empty_dir).unwrap();
+        fs::create_dir_all(&nir_unmatched_dir).unwrap();
+
+        // Create test files
+        fs::write(rgb_dir.join("210101_120100000.iiq"), "content").unwrap();
+        fs::write(nir_dir.join("210101_120100100.iiq"), "content").unwrap();
+
+        fs::write(rgb_dir.join("210101_130000040.iiq"), "content").unwrap();
+        fs::write(nir_dir.join("210101_130000040.iiq"), "content").unwrap();
+
+        fs::write(rgb_empty_dir.join("210101_140000000.iiq"), "").unwrap();
+        fs::write(nir_unmatched_dir.join("210101_140000100.iiq"), "").unwrap();
+
+        // Create original directories
+        // --Removed fs::create_dir_all(&rgb_dir.join("210101_1201")).unwrap();
+        fs::create_dir_all(&nir_dir.join("210101_1201")).unwrap();
+        fs::create_dir_all(&rgb_dir.join("210101_1300")).unwrap();
+        fs::create_dir_all(&nir_dir.join("210101_1300")).unwrap();
+        fs::create_dir_all(&rgb_dir.join("210101_1400")).unwrap();
+        fs::create_dir_all(&nir_dir.join("210101_1400")).unwrap();
+
+        let (rgb_count, nir_count) = revert_changes(&rgb_dir, &nir_dir, false, false).unwrap();
+
+        assert_eq!(rgb_count, 3);
+        assert_eq!(nir_count, 3);
+
+        assert!(rgb_dir.join("210101_120100000.iiq").exists());
+        assert!(nir_dir.join("210101_1201/210101_120100100.iiq").exists());
+        assert!(rgb_dir.join("210101_1300/210101_130000040.iiq").exists());
+        assert!(nir_dir.join("210101_1300/210101_130000040.iiq").exists());
+        assert!(rgb_dir.join("210101_1400/210101_140000000.iiq").exists());
+        assert!(nir_dir.join("210101_1400/210101_140000100.iiq").exists());
     }
 }

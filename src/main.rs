@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::Result;
 use clap::Parser;
 
-use ix_match::{find_dir_by_pattern, process_images};
+use ix_match::{find_dir_by_pattern, process_images, revert_changes};
 
 /// Match RGB and NIR IIQ files and move unmatched images to a new subdirectory.
 /// Helps to sort images from an aerial survey using PhaseOne cameras as a preprocessing step for
@@ -21,6 +21,11 @@ struct Args {
     /// Dry run (do not move files)
     #[arg(short, long, action = clap::ArgAction::SetTrue, default_value = "false")]
     dry_run: bool,
+
+    /// Revert the operation (move files back to the original directories)
+    /// This is useful if you want to undo the operation
+    #[arg(short, long, action = clap::ArgAction::SetTrue, default_value = "false")]
+    revert: bool,
 
     /// Keep empty files (do not filter out files with 0 bytes)
     #[arg(short, long, action = clap::ArgAction::SetTrue, default_value = "false")]
@@ -56,6 +61,16 @@ fn main() -> Result<()> {
 
     let nir_dir = find_dir_by_pattern(&iiq_dir, &args.nir_pattern, args.case_sensitive)
         .ok_or_else(|| anyhow::anyhow!("NIR directory not found"))?;
+
+    if args.revert {
+        match revert_changes(&rgb_dir, &nir_dir, args.dry_run, args.verbose) {
+            Ok((rgb_count, nir_count)) => {
+                println!("RGB: {rgb_count}, NIR: {nir_count} files reverted to original directories");
+            }
+            Err(e) => eprintln!("Error: {}", e),
+        }
+        return Ok(());
+    }
 
     let thresh = Duration::from_millis(args.thresh);
     match process_images(
